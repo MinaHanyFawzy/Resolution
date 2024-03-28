@@ -1,25 +1,3 @@
-def elimination_implication(statements):
-    new_statements = []
-    for statement in statements:
-        if '-->' in statement:
-            p, q = statement.split('-->')
-            new_statements.append('!' + p + '|' + q)
-        elif '<->' in statement:
-            p, q = statement.split('<->')
-            new_statements.append('(!' + p + '|' + q + ')&(!' + q + '|' + p + ')')
-        else:
-            new_statements.append(statement)
-    return new_statements
-
-def move_negation_inward(statements):
-    new_statements = []
-    for statement in statements:
-        if "!!" in statement:
-            new_statements.append(statement.replace("!!", ""))
-        else:
-            new_statements.append(statement)
-    return new_statements
-
 import re
 
 def eliminate_implication(formula):
@@ -28,10 +6,8 @@ def eliminate_implication(formula):
     return formula
 
 def move_negation_inward(formula):
-    while '!!' in formula:
-        formula = formula.replace('!!', '')
-    formula = re.sub(r'!(\w+\(.*?\))\s*&\s*!(\w+\(.*?\))', r'!\1 | \2', formula)
-    formula = re.sub(r'!(\w+\(.*?\))\s*\|\s*!(\w+\(.*?\))', r'!\1 & \2', formula)
+    formula = re.sub(r'!\(\s*(\w+)\s*&\s*(\w+)\s*\)', r'(!\1 | !\2)', formula)
+    formula = re.sub(r'!\(\s*(\w+)\s*\|\s*(\w+)\s*\)', r'(!\1 & !\2)', formula)
     formula = re.sub(r'!∀\s*(\w+)\s*(\w+)', r'∃\1 !\2', formula)
     formula = re.sub(r'!∃\s*(\w+)\s*(\w+)', r'∀\1 !\2', formula)
     return formula
@@ -39,14 +15,52 @@ def move_negation_inward(formula):
 def remove_double_not(formula):
     return re.sub(r'!!(\w+\(.*?\))', r'\1', formula)
 
-def standardize_variable_scope(formula):
-    return re.sub(r'(∀\w+\s+\w+)\s*\|\s*(∃\w+\s+\w+)', r'\1 | \2', formula)
+def standardize_variable(expression):
+    # Replace duplicate variables with unique names (a-z)
+    unique_vars = set()
+    def replace_var(match):
+        var = match.group(1)
+        if var in unique_vars:
+            # Find the next available letter (a-z)
+            for letter in "abcdefghijklmnopqrstuvwxyz":
+                if letter not in unique_vars:
+                    unique_vars.add(letter)
+                    return letter
+        else:
+            unique_vars.add(var)
+            return var
+
+    # Replace variables inside function brackets
+    expression = re.sub(r'(\w+)\((\w+)\)', r'\1(\2)', expression)
+
+    # Replace duplicate variables
+    expression = re.sub(r'(\w+)', replace_var, expression)
+
+    return expression
 
 def prenex_form(formula):
-    parts = formula.split(' | ')
-    quantifiers = [part for part in parts if '∀' in part or '∃' in part]
-    predicates = [part for part in parts if part not in quantifiers]
-    return ' | '.join(quantifiers + predicates)
+    # Extract quantifiers and predicates from the formula
+    parts = formula.split('|')
+    quantifiers = []
+    predicates = []
+
+    for part in parts:
+        # Match quantifiers and the character following them
+        quantifier = re.findall(r'(∀|∃)(\w+)', part)
+        if quantifier:
+            quantifiers.extend(quantifier)
+            # Remove quantifiers and their associated variables
+            part = re.sub(r'(∀|∃)\w+\s*', '', part)
+        predicates.append(part)
+
+    # Construct quantifier string with associated variables
+    quantifier_str = ' '.join([f"{q[0]}{q[1]}" for q in quantifiers])
+
+    # Add quantifier string to the beginning of the statements
+    if quantifier_str:
+        return f"{quantifier_str} {'|'.join(predicates)}"
+    else:
+        return '|'.join(predicates)
 
 def skolemization(formula):
     variables = re.findall(r'∃\w+\s*(\w+)', formula)
@@ -56,57 +70,111 @@ def skolemization(formula):
     formula = re.sub(r'∀(\w+)\s*∃(\w+)\s*(\w+)', r'∀\1 \3', formula)
     return formula
 
-def eliminate_universal_quantifiers(formula):
+def drop_universal(formula):
     return re.sub(r'∀(\w+)\s*(\w+)', r'\2', formula)
 
 def convert_to_cnf(formula):
-    formula = formula.replace('(', '').replace(')', '')
-    parts = formula.split('&')
-    clauses = []
-    for part in parts:
-        if '|' in part:
-            clauses.append('(' + part + ')')
-        else:
-            clauses.extend(part.split('|'))
-    return ' & '.join(clauses)
+    pattern = r'(\w+)\s*\|\s*\((\w+)\s*&\s*(\w+)\)'
 
-def rename_variables(clauses):
-    unique_variables = set()
-    for i, clause in enumerate(clauses):
-        variables = re.findall(r'\w+\(.*?\)', clause)
-        for var in variables:
-            if var not in unique_variables:
-                unique_variables.add(var)
-                new_var = 'x' + str(len(unique_variables))
-                clauses[i] = clauses[i].replace(var, new_var)
-    return clauses
+    def distribute(match):
+        p, q, r = match.groups()
+        return f'({p} | {q}) & ({p} | {r})'
 
-def resolution_procedure(formula):
-    # Step 1: Eliminate Implication
-    formula = eliminate_implication(formula)
-    # Step 2: Move Negation Inward
-    formula = move_negation_inward(formula)
-    # Step 3: Remove Double Not
-    formula = remove_double_not(formula)
-    # Step 4: Standardize Variable Scope
-    formula = standardize_variable_scope(formula)
-    # Step 5: Prenex Form
-    formula = prenex_form(formula)
-    # Step 6: Skolemization
-    formula = skolemization(formula)
-    # Step 7: Eliminate Universal Quantifiers
-    formula = eliminate_universal_quantifiers(formula)
-    # Step 8: Convert to Conjunctive Normal Form
-    formula = convert_to_cnf(formula)
-    # Step 9: Turn conjunctions into clauses in a set
-    clauses = formula.split('&')
-    # Step 10: Rename variables in clauses
-    clauses = rename_variables(clauses)
-    formula = ' & '.join(clauses)
-    
+    return re.sub(pattern, distribute, formula)
+
+def turn_conjunction(cnf_formula):
+    clauses = cnf_formula.split('&')
+    renamed_clauses = []
+    variables_count = {}
+
+    for idx, clause in enumerate(clauses, start=1):
+        # Rename variables within the clause
+        def repl(match):
+            var = match.group(0)
+            count = variables_count.get(var, 0) + 1
+            variables_count[var] = count
+            return var + str(count)
+
+        clause = re.sub(r'\b(\w+)\b', repl, clause)
+        renamed_clauses.append('C{}: {}'.format(idx, clause))
+
+    return '{' + ', '.join(renamed_clauses) + '}'
+
+def rename_variables(formula):
+    variables_count = {}
+    def repl(match):
+        var = match.group(0)
+        count = variables_count.get(var, 0) + 1
+        variables_count[var] = count
+        return var + str(count)
+
+    formula = re.sub(r'\b(\w+)\b', repl, formula)
     return formula
 
-# Example usage
-formula = "!!p"
-result = remove_double_not(formula)
+
+formula = "(P(x) ==> Q(x))"
+result = eliminate_implication(formula)
+print("Original form:", formula)
 print("Final result:", result)
+print("")
+
+formula = "(P(x) <-> Q(x))"
+result = eliminate_implication(formula)
+print("Original form:", formula)
+print("Final result:", result)
+print("")
+
+formula = "!(p & q)"
+result = move_negation_inward(formula)
+print("Original form:", formula)
+print("Final result:", result)
+print("")
+
+
+formula = "!!(P(x) | Q(x))"
+result = remove_double_not(formula)
+print("Original form:", formula)
+print("Final result:", result)
+print("")
+
+formula = "P(x) | Q(x)"
+result = standardize_variable(formula)
+print("Original form:", formula)
+print("Final result:", result)
+print("")
+
+formula = "(∀x P(x)) & (∃y Q(x))"
+result = prenex_form(formula)
+print("Original form:", formula)
+print("Final result:", result)
+print("")
+
+formula = "(∃xP(x))  & (∃y Q(x))"
+result = skolemization(formula)
+print("Original form:", formula)
+print("Final result:", result)
+print("")
+
+formula = "(∀xP(x))  & (∀y Q(x))"
+result = drop_universal(formula)
+print("Original form:", formula)
+print("Final result:", result)
+print("")
+
+formula = "p | (q & r)"
+result = convert_to_cnf(formula)
+print("Original form:", formula)
+print("Final result:", result)
+print("")
+
+formula = "(P(x) & Q(y)) | (R(z) & S(w))"
+result = turn_conjunction(formula)
+print("Original form:", formula)
+print("Final result:", result)
+print("")
+
+formula = "(P(x) & Q(y)) | (R(z) & S(w))"
+result = rename_variables(formula)
+print("Original form:", formula)
+print("Final result:", result)
+print("")
